@@ -54,3 +54,4 @@ output/results/
 paper/*.html
 
 
+.DS_Store
