@@ -91,5 +91,5 @@ This scenario illustrates the emerging trade-off: - Heckman can be closer to the
 
 ## 4. Next steps
 
-1.  Possibly refine the mixture specification depending on TA feedback (whether mixture affects only $u$ or both $u$ and $v$).\
+1.  Possibly refine the mixture specification depending on feedback from Vedant (whether mixture affects only $u$ or both $u$ and $v$).\
 2.  Increase $R$ t
