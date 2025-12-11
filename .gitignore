@@ -50,3 +50,7 @@ rsconnect/
 
 # Monte Carlo outputs
 output/results/
+
+paper/*.html
+
+
