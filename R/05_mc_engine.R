@@ -32,6 +32,11 @@ run_mc_one_scenario <- function(scen, cfg, estimators,
              " but expected ", K, ".")
       }
       
+      # NEW: on first iteration, set column names from b_hat
+      if (r == 1L) {
+        colnames(raw[[nm]]) <- names(b_hat)
+      }
+      
       raw[[nm]][r, ] <- b_hat
     }
   }

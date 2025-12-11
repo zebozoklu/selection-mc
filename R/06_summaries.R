@@ -14,11 +14,19 @@ summarize_mc_estimator <- function(est_mat, beta_true, target_index = 1) {
   }
   
   means <- colMeans(est_mat)
-  bias  <- means - beta_true
+  # keep coefficient names if present
+  if (!is.null(colnames(est_mat))) {
+    names(means) <- colnames(est_mat)
+  }
+  
+  bias <- means - beta_true
   
   # center each column by true value then square
   diffs <- sweep(est_mat, 2, beta_true, FUN = "-")
   rmse  <- sqrt(colMeans(diffs^2))
+  
+  names(bias) <- names(means)
+  names(rmse) <- names(means)
   
   # sign failure for the target coefficient
   sign_fail <- mean(sign(est_mat[, target_index]) != sign(beta_true[target_index]))
@@ -29,4 +37,41 @@ summarize_mc_estimator <- function(est_mat, beta_true, target_index = 1) {
     rmse = rmse,
     sign_fail = sign_fail
   )
+}
+
+# Turn one scenario's MC result into a tidy summary table
+# mc_res: output of run_mc_one_scenario()
+mc_result_to_table <- function(mc_res) {
+  scen <- mc_res$scen
+  summaries <- mc_res$summary
+  
+  rows <- list()
+  
+  for (est_name in names(summaries)) {
+    s <- summaries[[est_name]]
+    
+    coef_names <- names(s$mean)
+    if (is.null(coef_names)) {
+      coef_names <- paste0("coef", seq_along(s$mean))
+    }
+    
+    tmp <- data.frame(
+      scenario_id = scen$scenario_id,
+      n           = scen$n,
+      p_select    = scen$p_select,
+      rho         = scen$rho,
+      err_family  = as.character(scen$err_family),
+      estimator   = est_name,
+      coef_name   = coef_names,
+      mean        = as.numeric(s$mean),
+      bias        = as.numeric(s$bias),
+      rmse        = as.numeric(s$rmse),
+      sign_fail   = s$sign_fail,
+      stringsAsFactors = FALSE
+    )
+    
+    rows[[est_name]] <- tmp
+  }
+  
+  do.call(rbind, rows)
 }
