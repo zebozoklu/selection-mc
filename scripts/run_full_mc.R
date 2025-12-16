@@ -29,9 +29,9 @@ cat("Number of scenarios:", nrow(grid2), "\n")
 
 # 2) Define estimators
 estimators <- list(
-  selected_ols   = est_selected_ols,
-  zero_impute    = est_zero_impute_ols,
-  heckman_2step  = est_heckman_2step
+  selected_ols  = est_selected_ols,
+  zero_impute   = est_zero_impute_ols,
+  heckman_2step = est_heckman_2step
 )
 
 # 3) Choose R for main runs
@@ -45,10 +45,13 @@ all_rows <- list()
 for (i in seq_len(nrow(grid2))) {
   scen <- grid2[i, ]
   
-  cat(sprintf("Running scenario %s (%d/%d): n=%d, p=%.2f, rho=%.2f, err=%s\n",
-              scen$scenario_id, i, nrow(grid2),
-              scen$n, scen$p_select, scen$rho,
-              as.character(scen$err_family)))
+  cat(sprintf(
+    "Running scenario %s (%d/%d): n=%d, p=%.2f, rho=%.2f, err=%s, sel_model=%s\n",
+    scen$scenario_id, i, nrow(grid2),
+    scen$n, scen$p_select, scen$rho,
+    as.character(scen$err_family),
+    as.character(scen$sel_model)
+  ))
   
   # use different seed per scenario to decorrelate simulations
   seed_i <- cfg$seed_mc + i
@@ -75,7 +78,13 @@ if (!dir.exists("output/results")) {
 saveRDS(summary_table, file = "output/results/mc_summary.rds")
 
 # optional: also save as CSV for quick viewing
-write.csv(summary_table, file = "output/results/mc_summary.csv",
-          row.names = FALSE)
+write.csv(
+  summary_table,
+  file      = "output/results/mc_summary.csv",
+  row.names = FALSE
+)
 
 cat("Saved summary table to output/results/mc_summary.rds and .csv\n")
+
+
+

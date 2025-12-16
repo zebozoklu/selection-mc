@@ -78,3 +78,6 @@ est_heckman_2step <- function(dat) {
   
   b
 }
+
+
+

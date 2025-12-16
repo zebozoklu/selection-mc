@@ -61,6 +61,8 @@ mc_result_to_table <- function(mc_res) {
       p_select    = scen$p_select,
       rho         = scen$rho,
       err_family  = as.character(scen$err_family),
+      sel_model   = as.character(scen$sel_model),  # NEW
+      df          = scen$df,                       # optional but nice
       estimator   = est_name,
       coef_name   = coef_names,
       mean        = as.numeric(s$mean),
@@ -75,3 +77,5 @@ mc_result_to_table <- function(mc_res) {
   
   do.call(rbind, rows)
 }
+
+
