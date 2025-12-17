@@ -1,13 +1,11 @@
 # Performance summaries
-# Purpose: compute bias, RMSE, sign-reversal frequency (and maybe coverage later)
-# Inputs: matrix/array of estimates + true parameter values
-# Outputs: tidy summary table per scenario x estimator
-# Sanity checks: metrics computed on correct coefficient index; handles NA gracefully
+# Purpose: compute bias, RMSE, sign-reversal freq, and coverage
+# Inputs: est_mat (R x K), beta_true (length K), optional se_mat (R x K)
+# Outputs: list(mean, bias, rmse, sign_fail, coverage)
+# coverage is for the target coefficient only (scalar)
 
-summarize_mc_estimator <- function(est_mat, beta_true, target_index = 1) {
-  # est_mat: R x K matrix of estimates (rows = replications, cols = coefficients)
-  # beta_true: length-K vector of true coefficients (intercept + slopes)
-  # target_index: index of the slope in beta_true we care about for sign failures
+summarize_mc_estimator <- function(est_mat, beta_true, target_index = 1,
+                                   se_mat = NULL, alpha = 0.05) {
   if (!is.matrix(est_mat)) stop("est_mat must be a matrix.")
   if (ncol(est_mat) != length(beta_true)) {
     stop("ncol(est_mat) must equal length(beta_true).")
@@ -31,11 +29,31 @@ summarize_mc_estimator <- function(est_mat, beta_true, target_index = 1) {
   # sign failure for the target coefficient
   sign_fail <- mean(sign(est_mat[, target_index]) != sign(beta_true[target_index]))
   
+  # coverage for target coefficient, if SEs available
+  coverage <- NA_real_
+  if (!is.null(se_mat)) {
+    if (!is.matrix(se_mat) ||
+        any(dim(se_mat) != dim(est_mat))) {
+      stop("se_mat must be a matrix with same dim as est_mat.")
+    }
+    zcrit <- qnorm(1 - alpha / 2)
+    est_t <- est_mat[, target_index]
+    se_t  <- se_mat[, target_index]
+    
+    lower <- est_t - zcrit * se_t
+    upper <- est_t + zcrit * se_t
+    
+    inside <- (beta_true[target_index] >= lower) &
+      (beta_true[target_index] <= upper)
+    coverage <- mean(inside)
+  }
+  
   list(
-    mean = means,
-    bias = bias,
-    rmse = rmse,
-    sign_fail = sign_fail
+    mean      = means,
+    bias      = bias,
+    rmse      = rmse,
+    sign_fail = sign_fail,
+    coverage  = coverage
   )
 }
 
@@ -61,14 +79,13 @@ mc_result_to_table <- function(mc_res) {
       p_select    = scen$p_select,
       rho         = scen$rho,
       err_family  = as.character(scen$err_family),
-      sel_model   = as.character(scen$sel_model),  # NEW
-      df          = scen$df,                       # optional but nice
       estimator   = est_name,
       coef_name   = coef_names,
       mean        = as.numeric(s$mean),
       bias        = as.numeric(s$bias),
       rmse        = as.numeric(s$rmse),
       sign_fail   = s$sign_fail,
+      coverage    = s$coverage,   # same value for all coef rows
       stringsAsFactors = FALSE
     )
     
@@ -77,5 +94,6 @@ mc_result_to_table <- function(mc_res) {
   
   do.call(rbind, rows)
 }
+
 
 

@@ -1,19 +1,32 @@
 # Estimator layer
-# Purpose: implement each estimator mapping (Y,S,X,Z) -> beta_hat
+# Purpose: implement each estimator mapping (Y,S,X,Z) -> beta_hat (+ se)
 # Estimators:
 #   - selected-sample OLS
 #   - zero-imputation OLS
 #   - Heckman two-step variants (probit/logit/LPM first stage)
 # Inputs: simulated dataset list
-# Outputs: standardized beta_hat vector (intercept + slopes)
-# Sanity checks: returns numeric vector with correct length; no silent NA
+# Outputs: list(beta = ..., se = ...)  (intercept + slopes)
+# Sanity checks: correct length; no silent NA
 
-# --- helper: bare-bones OLS using lm.fit ---
-ols_fit <- function(y, X) {
+# --- helper: OLS with homoskedastic SEs using lm.fit ---
+ols_fit_with_se <- function(y, X) {
   fit <- lm.fit(x = X, y = y)
-  out <- coef(fit)
-  # ensure it's a plain numeric, not named weirdly
-  as.numeric(out)
+  b   <- coef(fit)
+  
+  n <- NROW(X)
+  k <- NCOL(X)
+  
+  # residuals and sigma^2
+  e       <- y - as.numeric(X %*% b)
+  sigma2  <- sum(e^2) / (n - k)
+  XtX_inv <- solve(crossprod(X))
+  vcov_b  <- sigma2 * XtX_inv
+  se      <- sqrt(diag(vcov_b))
+  
+  list(
+    beta = as.numeric(b),
+    se   = as.numeric(se)
+  )
 }
 
 # --- 1) Selected-sample OLS (ignore selection) ---
@@ -25,10 +38,15 @@ est_selected_ols <- function(dat) {
   Ys <- dat$Y[idx]
   
   X_design <- cbind(1, Xs)       # add intercept
-  b <- ols_fit(Ys, X_design)
   
-  names(b) <- c("intercept", colnames(dat$X))
-  b
+  fit <- ols_fit_with_se(Ys, X_design)
+  b   <- fit$beta
+  se  <- fit$se
+  
+  names(b)  <- c("intercept", colnames(dat$X))
+  names(se) <- c("intercept", colnames(dat$X))
+  
+  list(beta = b, se = se)
 }
 
 # --- 2) Zero-imputation OLS ---
@@ -38,10 +56,15 @@ est_zero_impute_ols <- function(dat) {
   Y0[is.na(Y0)] <- 0
   
   X_design <- cbind(1, dat$X)
-  b <- ols_fit(Y0, X_design)
   
-  names(b) <- c("intercept", colnames(dat$X))
-  b
+  fit <- ols_fit_with_se(Y0, X_design)
+  b   <- fit$beta
+  se  <- fit$se
+  
+  names(b)  <- c("intercept", colnames(dat$X))
+  names(se) <- c("intercept", colnames(dat$X))
+  
+  list(beta = b, se = se)
 }
 
 # --- helper: common second stage given a selection index z_index_hat ---
@@ -66,14 +89,20 @@ heckman_second_stage <- function(dat, z_index_hat) {
   
   X_design <- cbind(1, Xs, lam_s)
   
-  b_full <- ols_fit(Ys, X_design)
+  fit <- ols_fit_with_se(Ys, X_design)
+  b_full  <- fit$beta
+  se_full <- fit$se
   
   # first 1 + ncol(X) entries correspond to intercept + beta's
   p <- ncol(dat$X)
-  b <- b_full[1:(1 + p)]
-  names(b) <- c("intercept", colnames(dat$X))
+  keep <- 1:(1 + p)
+  b  <- b_full[keep]
+  se <- se_full[keep]
   
-  b
+  names(b)  <- c("intercept", colnames(dat$X))
+  names(se) <- c("intercept", colnames(dat$X))
+  
+  list(beta = b, se = se)
 }
 
 # --- 3a) Heckman two-step with PROBIT first stage (the classical one) ---
@@ -103,7 +132,6 @@ est_heckman_logit <- function(dat) {
   
   # linear predictor on logit scale
   z_index_hat <- as.numeric(dat$Z %*% coef(sel_fit))
-  # Alternatively: z_index_hat <- predict(sel_fit, type = "link")
   
   heckman_second_stage(dat, z_index_hat)
 }
@@ -118,6 +146,7 @@ est_heckman_lpm <- function(dat) {
   
   heckman_second_stage(dat, z_index_hat)
 }
+
 
 
 
