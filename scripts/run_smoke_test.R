@@ -30,8 +30,8 @@ grid2 <- add_gamma0_to_grid(grid, Z_noInt, cfg$gamma_slopes)
 # Example scenario: n=2000, p=0.6, rho=0.3, normal errors
 scen_example <- subset(
   grid2,
-  n == 500 & p_select == 0.3 &
-    rho == 0.6 & err_family == "normal"
+  n == 2000 & p_select == 0.6 &
+    rho == 0.3 & err_family == "normal"
 )[1, ]
 
 set.seed(cfg$seed_mc)
@@ -48,6 +48,3 @@ print(head(dat$X))
 
 cat("\nSummary of observed Y (with NAs for unselected):\n")
 print(summary(dat$Y))
-
-
-
