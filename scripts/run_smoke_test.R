@@ -1,16 +1,20 @@
 # Smoke test (no full Monte Carlo)
-# Goal:
-#   - load config + design + DGP + estimators
-#   - calibrate gamma0
-#   - simulate one dataset for a single scenario
+# Goal: run 1 scenario, 1 replication:
+#   - simulate one dataset
 #   - run each estimator once
-#   - print basic diagnostics (selection rate, estimates, etc.)
+#   - print estimates + key diagnostics (selection rate, etc.)
+
+# Smoke test: one scenario, one dataset
+# Goal:
+#   - load config + design + DGP code
+#   - calibrate gamma0
+#   - simulate one dataset
+#   - print basic diagnostics (selection rate, head(X), summary(Y))
 
 source("R/00_config.R")
 source("R/01_scenarios.R")
 source("R/02_calibration.R")
 source("R/03_dgp.R")
-source("R/04_estimators.R")
 
 cfg <- make_config()
 
@@ -23,13 +27,11 @@ Z_noInt <- matrix(
 grid  <- make_scenario_grid()
 grid2 <- add_gamma0_to_grid(grid, Z_noInt, cfg$gamma_slopes)
 
-# Example scenario: n=500, p=0.3, rho=0.6, normal errors
+# Example scenario: n=2000, p=0.6, rho=0.3, normal errors
 scen_example <- subset(
   grid2,
-  n == 500 &
-    p_select == 0.3 &
-    rho == 0.6 &
-    err_family == "normal"
+  n == 500 & p_select == 0.3 &
+    rho == 0.6 & err_family == "normal"
 )[1, ]
 
 set.seed(cfg$seed_mc)
@@ -46,22 +48,6 @@ print(head(dat$X))
 
 cat("\nSummary of observed Y (with NAs for unselected):\n")
 print(summary(dat$Y))
-
-# --- Run estimators once on this dataset ---
-cat("\nEstimator outputs (one dataset):\n")
-
-b_sel  <- est_selected_ols(dat)
-b_zero <- est_zero_impute_ols(dat)
-b_heck <- est_heckman_2step(dat)
-
-cat("\nSelected-sample OLS:\n")
-print(b_sel)
-
-cat("\nZero-imputation OLS:\n")
-print(b_zero)
-
-cat("\nHeckman 2-step (probit first stage):\n")
-print(b_heck)
 
 
 

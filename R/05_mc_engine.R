@@ -55,6 +55,3 @@ run_mc_one_scenario <- function(scen, cfg, estimators,
     scen = scen
   )
 }
-
-
-
