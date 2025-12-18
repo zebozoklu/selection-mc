@@ -29,13 +29,10 @@ cat("Number of scenarios:", nrow(grid2), "\n")
 
 # 2) Define estimators
 estimators <- list(
-  selected_ols    = est_selected_ols,
-  zero_impute     = est_zero_impute_ols,
-  heckman_probit  = est_heckman_probit,  # (alias of est_heckman_2step)
-  heckman_logit   = est_heckman_logit,
-  heckman_lpm     = est_heckman_lpm
+  selected_ols  = est_selected_ols,
+  zero_impute   = est_zero_impute_ols,
+  heckman_2step = est_heckman_2step
 )
-
 
 # 3) Choose R for main runs
 # For a first full run, it's safer to use R_debug.
