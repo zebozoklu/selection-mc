@@ -4,42 +4,50 @@
 #   - selected-sample OLS
 #   - zero-imputation OLS
 #   - Heckman two-step variants (probit/logit/LPM first stage)
-# Inputs: simulated dataset list
+# Inputs: simulated dataset list + cfg
 # Outputs: list(beta = ..., se = ...)  (intercept + slopes)
 # Sanity checks: correct length; no silent NA
 
-# --- helper: OLS with homoskedastic SEs using lm.fit ---
-ols_fit_with_se <- function(y, X) {
+# --- helper: OLS with either homoskedastic or HC1 robust SEs using lm.fit ---
+ols_fit_with_se <- function(y, X, se_type = c("HC1", "homosked")) {
+  se_type <- match.arg(se_type)
+  
   fit <- lm.fit(x = X, y = y)
   b   <- coef(fit)
   
   n <- NROW(X)
   k <- NCOL(X)
   
-  # residuals and sigma^2
-  e       <- y - as.numeric(X %*% b)
-  sigma2  <- sum(e^2) / (n - k)
-  XtX_inv <- solve(crossprod(X))
-  vcov_b  <- sigma2 * XtX_inv
-  se      <- sqrt(diag(vcov_b))
+  # residuals
+  e <- as.numeric(y - X %*% b)
   
-  list(
-    beta = as.numeric(b),
-    se   = as.numeric(se)
-  )
+  XtX_inv <- solve(crossprod(X))
+  
+  if (se_type == "homosked") {
+    sigma2 <- sum(e^2) / (n - k)
+    vcov_b <- sigma2 * XtX_inv
+  } else {
+    # HC1 sandwich: (n/(n-k)) * (X'X)^(-1) X' diag(e^2) X (X'X)^(-1)
+    meat   <- crossprod(X, X * (e^2))
+    vcov_b <- (n / (n - k)) * XtX_inv %*% meat %*% XtX_inv
+  }
+  
+  se <- sqrt(diag(vcov_b))
+  
+  list(beta = as.numeric(b), se = as.numeric(se))
 }
 
 # --- 1) Selected-sample OLS (ignore selection) ---
-est_selected_ols <- function(dat) {
+est_selected_ols <- function(dat, cfg) {
   idx <- which(dat$S == 1L)
   if (length(idx) == 0L) stop("No selected observations for selected-OLS.")
   
   Xs <- dat$X[idx, , drop = FALSE]
   Ys <- dat$Y[idx]
   
-  X_design <- cbind(1, Xs)       # add intercept
+  X_design <- cbind(1, Xs)  # add intercept
   
-  fit <- ols_fit_with_se(Ys, X_design)
+  fit <- ols_fit_with_se(Ys, X_design, se_type = cfg$se_type)
   b   <- fit$beta
   se  <- fit$se
   
@@ -50,14 +58,13 @@ est_selected_ols <- function(dat) {
 }
 
 # --- 2) Zero-imputation OLS ---
-est_zero_impute_ols <- function(dat) {
+est_zero_impute_ols <- function(dat, cfg) {
   Y0 <- dat$Y
-  # replace NA outcomes with zero
   Y0[is.na(Y0)] <- 0
   
   X_design <- cbind(1, dat$X)
   
-  fit <- ols_fit_with_se(Y0, X_design)
+  fit <- ols_fit_with_se(Y0, X_design, se_type = cfg$se_type)
   b   <- fit$beta
   se  <- fit$se
   
@@ -67,19 +74,18 @@ est_zero_impute_ols <- function(dat) {
   list(beta = b, se = se)
 }
 
-# --- helper: common second stage given a selection index z_index_hat ---
-# We always build a "Heckman-style" control function using the normal IMR:
-#   lambda_i = phi(z_i) / Phi(z_i)
-# even if the first stage is logit or LPM -> deliberately mis-specified.
-heckman_second_stage <- function(dat, z_index_hat) {
-  # Normal-based IMR from supplied index
-  p_hat <- pnorm(z_index_hat)
-  # avoid division by zero / Inf in extreme cases
-  eps <- 1e-8
+# --- helper: second stage using normal IMR, built from predicted probabilities ---
+# We compute:
+#   z_tilde = Phi^{-1}(p_hat)
+#   lambda  = phi(z_tilde) / p_hat
+# This avoids mixing scales (logit/LPM indexes are not probit indexes).
+heckman_second_stage_from_phat <- function(dat, p_hat, cfg) {
+  eps <- cfg$eps_prob %||% 1e-8
   p_hat <- pmin(pmax(p_hat, eps), 1 - eps)
-  lambda <- dnorm(z_index_hat) / p_hat
   
-  # restrict to selected sample
+  z_tilde <- qnorm(p_hat)
+  lambda  <- dnorm(z_tilde) / p_hat
+  
   idx <- which(dat$S == 1L)
   if (length(idx) == 0L) stop("No selected observations for Heckman two-step.")
   
@@ -89,13 +95,13 @@ heckman_second_stage <- function(dat, z_index_hat) {
   
   X_design <- cbind(1, Xs, lam_s)
   
-  fit <- ols_fit_with_se(Ys, X_design)
+  fit <- ols_fit_with_se(Ys, X_design, se_type = cfg$se_type)
   b_full  <- fit$beta
   se_full <- fit$se
   
-  # first 1 + ncol(X) entries correspond to intercept + beta's
   p <- ncol(dat$X)
   keep <- 1:(1 + p)
+  
   b  <- b_full[keep]
   se <- se_full[keep]
   
@@ -105,48 +111,49 @@ heckman_second_stage <- function(dat, z_index_hat) {
   list(beta = b, se = se)
 }
 
-# --- 3a) Heckman two-step with PROBIT first stage (the classical one) ---
-est_heckman_probit <- function(dat) {
-  # 1) Probit selection: S ~ Z
+# --- 3a) Heckman two-step with PROBIT first stage ---
+est_heckman_probit <- function(dat, cfg) {
   sel_df <- data.frame(S = dat$S, dat$Z)
-  # dat$Z already includes intercept column; fit without an extra intercept
-  sel_fit <- glm(S ~ . - 1, data = sel_df,
-                 family = binomial(link = "probit"))
   
-  # linear index (on probit scale)
-  z_index_hat <- as.numeric(dat$Z %*% coef(sel_fit))
+  sel_fit <- glm(
+    S ~ . - 1,
+    data   = sel_df,
+    family = binomial(link = "probit")
+  )
   
-  # 2) Common second stage
-  heckman_second_stage(dat, z_index_hat)
+  p_hat <- fitted(sel_fit)  # predicted selection prob
+  heckman_second_stage_from_phat(dat, p_hat, cfg)
 }
 
 # keep old name for backward compatibility
 est_heckman_2step <- est_heckman_probit
 
-# --- 3b) "Heckman-logit": logit first stage + normal IMR control function ---
-est_heckman_logit <- function(dat) {
+# --- 3b) Heckman "logit": logit first stage + normal IMR from p_hat ---
+est_heckman_logit <- function(dat, cfg) {
   sel_df <- data.frame(S = dat$S, dat$Z)
   
-  sel_fit <- glm(S ~ . - 1, data = sel_df,
-                 family = binomial(link = "logit"))
+  sel_fit <- glm(
+    S ~ . - 1,
+    data   = sel_df,
+    family = binomial(link = "logit")
+  )
   
-  # linear predictor on logit scale
-  z_index_hat <- as.numeric(dat$Z %*% coef(sel_fit))
-  
-  heckman_second_stage(dat, z_index_hat)
+  p_hat <- fitted(sel_fit)
+  heckman_second_stage_from_phat(dat, p_hat, cfg)
 }
 
-# --- 3c) "Heckman-LPM": linear probability first stage + normal IMR ---
-est_heckman_lpm <- function(dat) {
+# --- 3c) Heckman "LPM": linear probability first stage + normal IMR from p_hat ---
+est_heckman_lpm <- function(dat, cfg) {
   sel_df <- data.frame(S = dat$S, dat$Z)
   
   sel_fit <- lm(S ~ . - 1, data = sel_df)
   
-  z_index_hat <- as.numeric(dat$Z %*% coef(sel_fit))
+  p_hat <- as.numeric(dat$Z %*% coef(sel_fit))
+  eps <- cfg$eps_prob %||% 1e-8
+  p_hat <- pmin(pmax(p_hat, eps), 1 - eps)
   
-  heckman_second_stage(dat, z_index_hat)
+  heckman_second_stage_from_phat(dat, p_hat, cfg)
 }
-
 
 
 
