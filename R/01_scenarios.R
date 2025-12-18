@@ -5,7 +5,7 @@
 # Sanity checks: grid size is expected; no duplicated scenario_id
 
 make_scenario_grid <- function(
-    n_vec        = 1000,
+    n_vec        = 500,
     p_select_vec = c(0.30, 0.60),
     rho_vec      = c(-0.6, 0.0, 0.6),
     err_families = c("normal", "t3", "t5", "logistic")
