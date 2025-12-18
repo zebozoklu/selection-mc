@@ -4,55 +4,31 @@
 # Outputs: a list/config object used by other scripts
 # Sanity checks: paths exist; parameters have correct dimensions
 
-`%||%` <- function(a, b) if (!is.null(a)) a else b
-
 make_config <- function() {
   list(
-    ## -----------------------
-    ## True parameters
-    ## -----------------------
-    # Outcome slopes (no intercept; true intercept assumed 0)
+    # True outcome parameters (no intercept here; we can treat intercept separately)
+    # Target: small but nonzero effects
+    # beta1 = 0.05 (effect of interest), beta2 = -0.025 (control)
     beta = c(0.05, -0.025),
     
-    # Selection slopes on X (Z_noInt). If later you add an exclusion C,
-    # you'll expand this structure.
+    # Selection slopes for Z_noInt (currently same dimension as X)
+    # (we can revisit these later if Vedant wants different strengths)
     gamma_slopes = c(0.8, -0.4),
     
-    # Target coefficient index among beta slopes (1 means beta[1] = x1)
+    # Which slope index is the "target" for sign reliability (1 means beta[1])
     target_beta_index = 1,
     
-    ## -----------------------
-    ## Covariate distribution
-    ## -----------------------
-    # X ~ N(0, SigmaX) where SigmaX has AR correlation
-    SigmaX_ar = 0.3,
+    # Monte Carlo reps
+    R_debug = 50,    # quick tests
+    R_full  = 1000,  # main runs
     
-    ## -----------------------
-    ## Inference / SE settings
-    ## -----------------------
-    # "HC1" recommended (robust sandwich). Optionally "homosked".
-    se_type = "HC1",
-    
-    # numerical stability for probabilities
-    eps_prob = 1e-8,
-    
-    ## -----------------------
-    ## Monte Carlo settings
-    ## -----------------------
-    R_debug = 50,
-    R_full  = 1000,
-    
-    # Calibration sample size
+    # Calibration sample size for Z
     n_calib = 200000,
     
-    ## -----------------------
-    ## Seeds
-    ## -----------------------
+    # Random seeds
     seed_calib = 1,
     seed_mc    = 123
   )
 }
-
-
 
 

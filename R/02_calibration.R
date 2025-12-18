@@ -20,8 +20,7 @@ Fv_from_scen <- function(scen) {
     return(function(x) pt(x, df = 5))
   }
   if (efam == "logistic") {
-    s <- sqrt(3) / pi
-    return(function(x) plogis(x / s))
+    return(plogis)  # logistic CDF
   }
   
   stop("Unknown err_family in Fv_from_scen: ", efam)
@@ -45,31 +44,21 @@ calibrate_gamma0 <- function(Z_noInt, gamma_slopes, target_p, Fv = pnorm,
 
 # Adds gamma0 column for each row of grid (scenario table)
 add_gamma0_to_grid <- function(grid, Z_noInt, gamma_slopes) {
-  grid$gamma0    <- NA_real_
-  grid$p_calib   <- NA_real_   # NEW: achieved mean selection prob in calibration sample
+  grid$gamma0 <- NA_real_
   
   for (i in seq_len(nrow(grid))) {
     scen <- grid[i, ]
-    Fv   <- Fv_from_scen(scen)
+    Fv <- Fv_from_scen(scen)
     
-    g0 <- calibrate_gamma0(
+    grid$gamma0[i] <- calibrate_gamma0(
       Z_noInt      = Z_noInt,
       gamma_slopes = gamma_slopes,
       target_p     = scen$p_select,
       Fv           = Fv
     )
-    
-    eta <- as.numeric(Z_noInt %*% gamma_slopes)
-    p_calib <- mean(Fv(g0 + eta))
-    
-    grid$gamma0[i]  <- g0
-    grid$p_calib[i] <- p_calib
   }
   
   grid
 }
-
-
-
 
 
