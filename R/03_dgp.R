@@ -8,20 +8,21 @@
 # Outputs: list(Y, S, X, Z, y_star, s_star)
 # Sanity checks: mean(S) near target; dimensions consistent; no NA explosions
 
+
 # --- helper: build SigmaX if not supplied (AR(0.3) for now) ---
 make_SigmaX <- function(ar = 0.3) {
   matrix(c(1, ar,
            ar, 1), nrow = 2, ncol = 2)
 }
 
-# --- helper: draw bivariate normal errors (u, v) with corr = rho ---
+# --- helper: draw bivariate normal errors (u, v) ---
 draw_uv_normal <- function(n, rho) {
   Sigma <- matrix(c(1, rho,
                     rho, 1), 2, 2)
   L <- chol(Sigma)
   Z <- matrix(rnorm(n * 2), n, 2)
   E <- Z %*% L
-  list(u = E[, 1], v = E[, 2])
+  list(u = E[,1], v = E[,2])
 }
 
 # --- helper: draw bivariate t errors via scaled normal ---
@@ -34,36 +35,28 @@ draw_uv_t <- function(n, rho, df) {
   )
 }
 
-# --- helper: draw "logistic" errors using a Gaussian copula ---
-# We want marginals ~ standard logistic (mean 0, var 1) and correlation ~ rho.
-# Construction:
-#   1) draw bivariate normal with corr = rho
-#   2) map to U(0,1) via Phi
-#   3) map to logistic via qlogis
-#   4) rescale to variance 1 (standard logistic has var = pi^2 / 3)
-draw_uv_logistic <- function(n, rho) {
-  # step 1: correlated normals
-  Sigma <- matrix(c(1, rho,
-                    rho, 1), 2, 2)
-  L <- chol(Sigma)
-  Z <- matrix(rnorm(n * 2), n, 2)
-  N2 <- Z %*% L
+# --- helper: mixture case (currently: mixture in u only, v normal/t) ---
+draw_uv_mixture <- function(n, rho, base_family = "normal", df = NULL,
+                            mix_pi = 0.10, mix_shift_u = 2.0) {
+  # base errors
+  if (base_family == "normal") {
+    base <- draw_uv_normal(n, rho)
+  } else if (base_family == "t") {
+    if (is.null(df)) stop("df must be provided for t mixture.")
+    base <- draw_uv_t(n, rho, df = df)
+  } else {
+    stop("Unknown base_family in mixture: ", base_family)
+  }
   
-  # step 2: map to uniforms
-  U  <- pnorm(N2)
+  jump <- rbinom(n, 1, mix_pi)
+  u <- base$u + jump * mix_shift_u
+  v <- base$v  # kept as base (normal/t) for now
   
-  # step 3: map to logistic(0, 1) (var = pi^2 / 3)
-  Lraw <- qlogis(U)
-  
-  # step 4: rescale to variance ~ 1
-  scale <- sqrt(3) / pi
-  Lstd  <- Lraw * scale
-  
-  list(u = Lstd[, 1], v = Lstd[, 2])
+  list(u = u, v = v)
 }
 
 simulate_one_dataset <- function(scen, cfg, SigmaX = NULL) {
-  # scen: one-row data.frame with n, rho, err_family, df, gamma0, (sel_model not used here)
+  # scen: one-row data.frame with n, rho, err_family, df, mix_pi, mix_shift_u, gamma0
   # cfg: config list from make_config()
   
   # --- unpack basic stuff ---
@@ -103,10 +96,17 @@ simulate_one_dataset <- function(scen, cfg, SigmaX = NULL) {
   
   errs <- switch(
     efam,
-    "normal"   = draw_uv_normal(n, rho),
-    "t3"       = draw_uv_t(n, rho, df = 3),
-    "t5"       = draw_uv_t(n, rho, df = 5),
-    "logistic" = draw_uv_logistic(n, rho),
+    "normal" = draw_uv_normal(n, rho),
+    "t3"     = draw_uv_t(n, rho, df = 3),
+    "t5"     = draw_uv_t(n, rho, df = 5),
+    "mixture" = draw_uv_mixture(
+      n = n,
+      rho = rho,
+      base_family = "normal",           # v ~ normal, u gets mixture shift
+      df = NULL,
+      mix_pi = scen$mix_pi,
+      mix_shift_u = scen$mix_shift_u
+    ),
     stop("Unknown err_family in simulate_one_dataset: ", efam)
   )
   
@@ -123,10 +123,10 @@ simulate_one_dataset <- function(scen, cfg, SigmaX = NULL) {
   
   # --- return dataset ---
   list(
-    Y      = Y,
-    S      = S,
-    X      = X,
-    Z      = Z,
+    Y = Y,
+    S = S,
+    X = X,
+    Z = Z,
     y_star = y_star,
     s_star = s_star
   )
