@@ -7,7 +7,7 @@
 make_config <- function() {
   list(
     # True outcome parameters (no intercept here; we can treat intercept separately)
-    beta = c(1.0, -0.5),
+    beta = c(0.05, -0.025),
     
     # Selection slopes for Z_noInt (currently same dimension as X)
     gamma_slopes = c(0.8, -0.4),
@@ -24,6 +24,12 @@ make_config <- function() {
     
     # Random seeds
     seed_calib = 1,
-    seed_mc = 123
+    seed_mc = 123,
+    
+    # (Optional) inference defaults for coverage
+    ci_level = 0.95
   )
 }
+
+
+
