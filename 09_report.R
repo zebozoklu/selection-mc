@@ -2,7 +2,8 @@
 # Friend-style reporting layer:
 #   - per-scenario density overlays / histograms
 #   - table slice export
-#   - NEW: appendix multipanel pages (2x3 or 3x2) for all scenarios
+#   - appendix multipanel pages (2x3 or 3x2) for all scenarios
+#   - (NEW) optional copy-to-paper/figs with stable filenames
 #
 # Inputs:
 #   output/results/mc_summary.rds
@@ -10,11 +11,13 @@
 # Outputs:
 #   output/figs/report/*.pdf and *.png
 #   output/tables/report_table_slice_<coef>.csv
+#   (optional) paper/figs/*.pdf (copied for LaTeX)
 #
 # Example:
 #   source("R/09_report.R")
-#   make_report(c("S004","S001","S013"), coef_name="x1", make_hists=TRUE)
-#   make_appendix_density_pages(coef_name="x1", ncol=3, nrow=2)  # all scenarios
+#   make_report(c("S004","S001","S007"), coef_name="x1", make_hists=FALSE,
+#               copy_to_paper=TRUE)
+#   make_appendix_density_pages(coef_name="x1", ncol=3, nrow=2)
 
 suppressPackageStartupMessages({
   library(ggplot2)
@@ -31,10 +34,25 @@ make_dirs <- function() {
   dir.create("output/draws",      recursive = TRUE, showWarnings = FALSE)
 }
 
-.save_both <- function(p, stem, w = 10, h = 6, dpi = 300) {
-  ggsave(file.path("output/figs/report", paste0(stem, ".pdf")), p, width = w, height = h)
-  ggsave(file.path("output/figs/report", paste0(stem, ".png")), p, width = w, height = h, dpi = dpi)
+.save_both <- function(p, stem, out_dir = "output/figs/report",
+                       w = 10, h = 6, dpi = 300) {
+  ggsave(file.path(out_dir, paste0(stem, ".pdf")), p, width = w, height = h)
+  ggsave(file.path(out_dir, paste0(stem, ".png")), p, width = w, height = h, dpi = dpi)
   invisible(p)
+}
+
+.copy_pdf_to_paper <- function(stem, out_dir = "output/figs/report",
+                               paper_figs_dir = "paper/figs",
+                               paper_filename = NULL) {
+  dir.create(paper_figs_dir, recursive = TRUE, showWarnings = FALSE)
+  src <- file.path(out_dir, paste0(stem, ".pdf"))
+  if (!file.exists(src)) return(invisible(FALSE))
+  
+  if (is.null(paper_filename)) paper_filename <- paste0(stem, ".pdf")
+  dst <- file.path(paper_figs_dir, paper_filename)
+  
+  ok <- file.copy(src, dst, overwrite = TRUE)
+  invisible(ok)
 }
 
 # ----------------------------
@@ -50,13 +68,39 @@ pretty_est <- function(x) {
   )
 }
 
+# Friend-like title (avoid Unicode em dash to prevent LaTeX bookmark warnings)
 scenario_title <- function(meta, coef_name) {
   paste0(
-    meta$scenario_id, ": ",
-    meta$err_family,
+    "Sampling distribution of ", coef_name,
+    " - ", meta$scenario_id,
+    " (n=", meta$n,
     ", p=", sprintf("%.2f", meta$p_select),
-    ", rho=", sprintf("%.2f", meta$rho)
+    ", rho=", sprintf("%.2f", meta$rho),
+    ", err=", as.character(meta$err_family), ")"
   )
+}
+
+# Manual palette to mimic friend-style contrast
+# (You explicitly asked to match style, so fixed colors are OK.)
+.est_palette <- function() {
+  c(
+    "Selected OLS"    = "grey50",
+    "Zero-impute OLS" = "red3",
+    "Heckman 2-step"  = "black"
+  )
+}
+
+.friend_theme <- function(base_size = 14) {
+  theme_minimal(base_size = base_size) +
+    theme(
+      plot.title = element_text(size = base_size + 6, face = "plain", hjust = 0.5),
+      axis.title = element_text(size = base_size + 2),
+      axis.text  = element_text(size = base_size),
+      legend.position = "bottom",
+      legend.title = element_blank(),
+      legend.box = "horizontal",
+      panel.grid.minor = element_blank()
+    )
 }
 
 # ----------------------------
@@ -97,6 +141,10 @@ read_draws_long <- function(scenario_id, coef_name = "x1",
     )
   }))
   
+  # stable estimator order in legend
+  long$estimator <- factor(long$estimator,
+                           levels = c("Selected OLS", "Zero-impute OLS", "Heckman 2-step"))
+  
   meta <- data.frame(
     scenario_id = scenario_id,
     n = scen$n,
@@ -116,7 +164,8 @@ plot_density_overlay <- function(scenario_id, coef_name = "x1",
                                  beta_true_val = NULL,
                                  out_stem = NULL,
                                  xlim_use = NULL,
-                                 show_title = TRUE) {
+                                 show_title = TRUE,
+                                 base_size = 14) {
   
   out <- read_draws_long(scenario_id, coef_name)
   long <- out$long
@@ -131,42 +180,42 @@ plot_density_overlay <- function(scenario_id, coef_name = "x1",
     xlim_use <- c(rng[1] - pad, rng[2] + pad)
   }
   
+  pal <- .est_palette()
+  
   p <- ggplot(long, aes(x = beta_hat, color = estimator)) +
-    geom_density(linewidth = 0.9) +
+    geom_density(linewidth = 1.1, adjust = 1.0) +
+    # True value line (single)
+    { if (!is.null(beta_true_val) && is.finite(beta_true_val))
+      geom_vline(xintercept = beta_true_val, linetype = "dashed", linewidth = 0.9)
+      else NULL } +
+    scale_color_manual(values = pal, drop = FALSE) +
+    coord_cartesian(xlim = xlim_use) +
     labs(
       title = ttl,
       x = "Estimate",
-      y = "Density",
-      color = NULL
+      y = "Density"
     ) +
-    coord_cartesian(xlim = xlim_use) +
-    theme_bw() +
-    theme(
-      legend.position = "bottom",
-      legend.box = "horizontal",
-      plot.title = element_text(size = 10)
+    .friend_theme(base_size = base_size) +
+    # Make legend keys look more like the friend example (square outlines instead of line segments)
+    guides(
+      color = guide_legend(
+        override.aes = list(linetype = 0, shape = 0, size = 6, linewidth = 1.5)
+      )
     )
   
-  # ONE true line
-  if (!is.null(beta_true_val) && is.finite(beta_true_val)) {
-    p <- p + geom_vline(xintercept = beta_true_val,
-                        linetype = "dashed",
-                        linewidth = 0.6,
-                        alpha = 0.7)
-  }
-  
   if (!is.null(out_stem)) {
-    .save_both(p, out_stem, w = 10, h = 6)
+    .save_both(p, out_stem, w = 11, h = 7)
   }
   p
 }
 
 # ----------------------------
-# Single-scenario histograms (optional appendix)
+# Single-scenario histograms (optional)
 # ----------------------------
 plot_histograms <- function(scenario_id, coef_name = "x1",
                             beta_true_val = NULL,
-                            out_stem = NULL) {
+                            out_stem = NULL,
+                            base_size = 13) {
   
   out <- read_draws_long(scenario_id, coef_name)
   long <- out$long
@@ -174,21 +223,18 @@ plot_histograms <- function(scenario_id, coef_name = "x1",
   
   ttl <- paste0("Histograms - ", scenario_title(meta, coef_name))
   
-  p <- ggplot(long, aes(x = beta_hat)) +
-    geom_histogram(bins = 40) +
+  p <- ggplot(long, aes(x = beta_hat, fill = estimator)) +
+    geom_histogram(bins = 40, color = "white") +
     facet_wrap(~ estimator, scales = "free_y") +
+    { if (!is.null(beta_true_val) && is.finite(beta_true_val))
+      geom_vline(xintercept = beta_true_val, linetype = "dashed", linewidth = 0.9)
+      else NULL } +
     labs(title = ttl, x = "Estimate", y = "Count") +
-    theme_bw()
-  
-  if (!is.null(beta_true_val) && is.finite(beta_true_val)) {
-    p <- p + geom_vline(xintercept = beta_true_val,
-                        linetype = "dashed",
-                        linewidth = 0.6,
-                        alpha = 0.7)
-  }
+    theme_minimal(base_size = base_size) +
+    theme(legend.position = "none", panel.grid.minor = element_blank())
   
   if (is.null(out_stem)) out_stem <- paste0("hist_", scenario_id, "_", coef_name)
-  .save_both(p, out_stem, w = 11, h = 6)
+  .save_both(p, out_stem, w = 11, h = 7)
 }
 
 # ----------------------------
@@ -198,7 +244,6 @@ export_table_slice <- function(scenario_ids, coef_name = "x1",
                                summary_path = "output/results/mc_summary.rds") {
   
   if (!file.exists(summary_path)) stop("Missing summary: ", summary_path)
-  
   tab <- readRDS(summary_path)
   
   slice <- tab %>%
@@ -225,11 +270,13 @@ make_report <- function(
     scenario_ids,
     coef_name = "x1",
     make_hists = FALSE,
-    summary_path = "output/results/mc_summary.rds"
+    summary_path = "output/results/mc_summary.rds",
+    copy_to_paper = FALSE,
+    paper_figs_dir = "paper/figs",
+    paper_name_map = NULL  # named character vector: c(S004="fig_density_benchmark_x1.pdf", ...)
 ) {
   
   make_dirs()
-  
   if (!file.exists(summary_path)) stop("Missing summary: ", summary_path)
   
   bt <- readRDS(summary_path) %>%
@@ -239,11 +286,14 @@ make_report <- function(
   bt_map <- setNames(bt$beta_true, bt$scenario_id)
   
   for (sid in scenario_ids) {
-    p <- plot_density_overlay(
+    stem <- paste0("density_", sid, "_", coef_name)
+    
+    plot_density_overlay(
       scenario_id = sid,
       coef_name = coef_name,
       beta_true_val = bt_map[[sid]],
-      out_stem = paste0("density_", sid, "_", coef_name)
+      out_stem = stem,
+      show_title = TRUE
     )
     
     if (isTRUE(make_hists)) {
@@ -254,6 +304,14 @@ make_report <- function(
         out_stem = paste0("hist_", sid, "_", coef_name)
       )
     }
+    
+    if (isTRUE(copy_to_paper)) {
+      paper_fn <- NULL
+      if (!is.null(paper_name_map) && sid %in% names(paper_name_map)) {
+        paper_fn <- unname(paper_name_map[[sid]])
+      }
+      .copy_pdf_to_paper(stem, paper_figs_dir = paper_figs_dir, paper_filename = paper_fn)
+    }
   }
   
   export_table_slice(
@@ -263,38 +321,32 @@ make_report <- function(
   )
   
   message("Saved report figures to output/figs/report/")
+  if (isTRUE(copy_to_paper)) message("Copied selected PDFs to ", paper_figs_dir)
   invisible(TRUE)
 }
 
 # ----------------------------
-# NEW: Appendix multipanel pages for many scenarios
+# Appendix multipanel pages (many scenarios)
 # ----------------------------
 make_appendix_density_pages <- function(
     scenario_ids = NULL,                 # NULL = infer from mc_summary
     coef_name = "x1",
     summary_path = "output/results/mc_summary.rds",
-    ncol = 3, nrow = 2,                  # 3x2 or 2x3
-    filter_rho = NULL,                   # e.g. "<0" or "== -0.6" (see below)
+    ncol = 3, nrow = 2,
+    filter_rho = NULL,                   # "<0", "== -0.6", "!=0", "== 0", "== 0.6"
     page_prefix = "appendix_density",
-    width_per_col = 4.2,                 # tweak sizing
-    height_per_row = 3.2
+    width_per_col = 4.4,
+    height_per_row = 3.4
 ) {
   
   make_dirs()
-  
   if (!file.exists(summary_path)) stop("Missing summary: ", summary_path)
   tab <- readRDS(summary_path)
   
-  # infer all scenario ids if not provided
   if (is.null(scenario_ids)) {
     scenario_ids <- tab %>% distinct(scenario_id) %>% arrange(scenario_id) %>% pull(scenario_id)
   }
   
-  # optional filter on rho using a simple string rule
-  # filter_rho examples:
-  #   "<0"       keeps negative rho
-  #   "== -0.6"  keeps exactly -0.6
-  #   "!= 0"
   if (!is.null(filter_rho)) {
     meta <- tab %>% distinct(scenario_id, rho)
     rho_num <- as.numeric(as.character(meta$rho))
@@ -307,11 +359,9 @@ make_appendix_density_pages <- function(
     if (filter_rho == "== 0") keep <- abs(rho_num - 0) < 1e-12
     if (filter_rho == "== 0.6") keep <- abs(rho_num - 0.6) < 1e-12
     
-    scenario_ids <- meta$scenario_id[keep]
-    scenario_ids <- sort(unique(scenario_ids))
+    scenario_ids <- sort(unique(meta$scenario_id[keep]))
   }
   
-  # map beta_true
   bt <- tab %>%
     filter(.data$coef_name == coef_name) %>%
     select(.data$scenario_id, .data$beta_true) %>%
@@ -321,19 +371,14 @@ make_appendix_density_pages <- function(
   per_page <- ncol * nrow
   n_pages <- ceiling(length(scenario_ids) / per_page)
   
-  # We use patchwork if available; otherwise fall back to gridExtra
   have_patchwork <- requireNamespace("patchwork", quietly = TRUE)
   
   for (pg in seq_len(n_pages)) {
     idx <- ((pg - 1) * per_page + 1):min(pg * per_page, length(scenario_ids))
     sids <- scenario_ids[idx]
     
-    # build each panel, and share x-limits within the page
-    # First: load all draws on the page to compute pooled x-range
+    # shared x-range within page
     all_vals <- c()
-    panels <- list()
-    
-    # collect values for range
     for (sid in sids) {
       out <- read_draws_long(sid, coef_name)
       all_vals <- c(all_vals, out$long$beta_hat)
@@ -342,7 +387,7 @@ make_appendix_density_pages <- function(
     pad <- 0.06 * diff(rng)
     xlim_page <- c(rng[1] - pad, rng[2] + pad)
     
-    # now create panels
+    panels <- list()
     for (sid in sids) {
       panels[[sid]] <- plot_density_overlay(
         scenario_id = sid,
@@ -350,51 +395,34 @@ make_appendix_density_pages <- function(
         beta_true_val = bt_map[[sid]],
         out_stem = NULL,
         xlim_use = xlim_page,
-        show_title = TRUE
+        show_title = TRUE,
+        base_size = 10
       ) +
         theme(
           legend.position = "none",
-          axis.title = element_blank()
+          axis.title = element_blank(),
+          plot.title = element_text(size = 11)
         )
     }
     
-    # collect legend from first panel (keep bottom legend once per page)
-    legend_plot <- plot_density_overlay(
-      scenario_id = sids[1],
-      coef_name = coef_name,
-      beta_true_val = bt_map[[sids[1]]],
-      out_stem = NULL,
-      xlim_use = xlim_page,
-      show_title = FALSE
-    ) + theme(legend.position = "bottom")
-    
-    # extract legend if patchwork is available; otherwise just leave legends off
     if (have_patchwork) {
       library(patchwork)
-      
-      # Turn panels into patchwork grid
       grid_plot <- wrap_plots(panels, ncol = ncol, nrow = nrow)
-      
-      # Add a shared title and legend row
-      page_title <- paste0("Appendix: Sampling distributions (", coef_name, ") — page ", pg, "/", n_pages)
+      page_title <- paste0("Appendix: Sampling distributions (", coef_name, ") - page ", pg, "/", n_pages)
       
       final <- grid_plot +
         plot_annotation(title = page_title) &
-        theme(plot.title = element_text(size = 12))
-      
-      # add legend as a separate row below
-      final2 <- final / legend_plot + plot_layout(heights = c(1, 0.12))
+        theme(plot.title = element_text(size = 13, hjust = 0.5))
       
       stem <- sprintf("%s_page_%02d_%s", page_prefix, pg, coef_name)
-      .save_both(final2, stem,
+      .save_both(final, stem,
                  w = width_per_col * ncol,
-                 h = height_per_row * nrow + 1.0)
+                 h = height_per_row * nrow)
     } else {
-      # fallback: save each panel individually if patchwork isn't installed
       warning("patchwork not installed; saving individual panels instead of multi-panel pages.")
       for (sid in sids) {
         .save_both(panels[[sid]], paste0("density_", sid, "_", coef_name),
-                   w = 6, h = 4)
+                   w = 7, h = 5)
       }
     }
   }
@@ -402,3 +430,5 @@ make_appendix_density_pages <- function(
   message("Saved appendix pages to output/figs/report/")
   invisible(TRUE)
 }
+
+
