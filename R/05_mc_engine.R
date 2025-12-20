@@ -1,4 +1,12 @@
 # R/05_mc_engine.R
+# Monte Carlo engine
+# Purpose: repeat simulation + estimation R times, for each scenario
+# Inputs: scenario table, number of reps R, estimator functions
+# Outputs:
+#   - raw_beta: estimates per rep (R x K) per estimator
+#   - raw_se:   robust SEs per rep (R x K) per estimator
+#   - aggregated summaries per scenario/estimator
+# Sanity checks: reproducible with seed; progress logging; stable coef naming
 
 run_mc_one_scenario <- function(scen, cfg, estimators,
                                 R = cfg$R_debug,
@@ -9,21 +17,10 @@ run_mc_one_scenario <- function(scen, cfg, estimators,
   p <- length(cfg$beta)       # number of X slopes
   K <- p + 1                  # intercept + slopes
   
-  # Canonical coefficient names used everywhere
-  coef_names <- c("(Intercept)", paste0("x", seq_len(p)))
+  # Canonical coefficient names (match your estimators: "intercept", "x1", "x2", ...)
+  coef_names <- c("intercept", paste0("x", seq_len(p)))
   
-  # prepare containers WITH colnames so density plots always work
-  raw_beta <- lapply(estimators, function(f) {
-    matrix(NA_real_, nrow = R, ncol = K, dimnames = list(NULL, coef_names))
-  })
-  raw_se <- lapply(estimators, function(f) {
-    matrix(NA_real_, nrow = R, ncol = K, dimnames = list(NULL, coef_names))
-  })
-  
-  # optional diagnostic
-  sel_rate <- rep(NA_real_, R)
-  
-  # helper: coerce estimator output into canonical order/names
+  # Coerce estimator output into canonical order/names
   coerce_to_canonical <- function(v, what = "beta") {
     if (is.null(v)) stop("Estimator returned NULL ", what, ".")
     if (length(v) != K) {
@@ -37,7 +34,12 @@ run_mc_one_scenario <- function(scen, cfg, estimators,
       return(v)
     }
     
-    # If named: require all canonical names and reorder
+    # Normalize common intercept name variants -> "intercept"
+    nm <- names(v)
+    nm[nm %in% c("(Intercept)", "Intercept", "CONST", "const", "Constant", "constant")] <- "intercept"
+    names(v) <- nm
+    
+    # Require all canonical names and reorder
     if (!all(coef_names %in% names(v))) {
       stop("Estimator returned ", what, " with names {",
            paste(names(v), collapse = ", "),
@@ -49,7 +51,18 @@ run_mc_one_scenario <- function(scen, cfg, estimators,
     v[coef_names]
   }
   
-  # main loop
+  # Prepare containers with fixed colnames (critical for density plots)
+  raw_beta <- lapply(estimators, function(f) {
+    matrix(NA_real_, nrow = R, ncol = K, dimnames = list(NULL, coef_names))
+  })
+  raw_se <- lapply(estimators, function(f) {
+    matrix(NA_real_, nrow = R, ncol = K, dimnames = list(NULL, coef_names))
+  })
+  
+  # Optional diagnostic
+  sel_rate <- rep(NA_real_, R)
+  
+  # Main loop
   for (r in seq_len(R)) {
     dat <- simulate_one_dataset(scen, cfg)
     
@@ -70,16 +83,16 @@ run_mc_one_scenario <- function(scen, cfg, estimators,
     }
   }
   
-  # true coefficients (assume true intercept = 0) — NAME THEM
+  # True coefficients (assume true intercept = 0), named to match canonical scheme
   beta_true <- setNames(c(0, cfg$beta), coef_names)
   
-  # summarize
+  # Summarize
   summary <- lapply(names(raw_beta), function(nm) {
     summarize_mc_estimator(
       beta_hat_mat = raw_beta[[nm]],
       se_hat_mat   = raw_se[[nm]],
       beta_true    = beta_true,
-      # if cfg$target_beta_index refers to x1=1, x2=2, ... then +1 accounts for intercept
+      # cfg$target_beta_index is index among slopes: x1=1, x2=2, ...
       target_index = 1 + cfg$target_beta_index
     )
   })
