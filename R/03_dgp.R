@@ -25,7 +25,7 @@ draw_uv_normal <- function(n, rho) {
   list(u = E[,1], v = E[,2])
 }
 
-# --- helper: draw bivariate t errors via scaled normal ---
+# --- helper: draw bivariate t errors via scaled normal (elliptical t) ---
 draw_uv_t <- function(n, rho, df) {
   base <- draw_uv_normal(n, rho)
   s <- sqrt(df / rchisq(n, df))
@@ -35,28 +35,27 @@ draw_uv_t <- function(n, rho, df) {
   )
 }
 
-# --- helper: mixture case (currently: mixture in u only, v normal/t) ---
-draw_uv_mixture <- function(n, rho, base_family = "normal", df = NULL,
-                            mix_pi = 0.10, mix_shift_u = 2.0) {
-  # base errors
-  if (base_family == "normal") {
-    base <- draw_uv_normal(n, rho)
-  } else if (base_family == "t") {
-    if (is.null(df)) stop("df must be provided for t mixture.")
-    base <- draw_uv_t(n, rho, df = df)
-  } else {
-    stop("Unknown base_family in mixture: ", base_family)
-  }
+# --- helper: Gaussian copula + arbitrary marginals via quantiles ---
+draw_uv_copula <- function(n, rho, qu, qv) {
+  # Draw correlated standard normals
+  Sigma <- matrix(c(1, rho,
+                    rho, 1), 2, 2)
+  L <- chol(Sigma)
+  Z <- matrix(rnorm(n * 2), n, 2)
+  E <- Z %*% L
   
-  jump <- rbinom(n, 1, mix_pi)
-  u <- base$u + jump * mix_shift_u
-  v <- base$v  # kept as base (normal/t) for now
+  # Map to uniforms, then to desired marginals
+  U1 <- pnorm(E[, 1])
+  U2 <- pnorm(E[, 2])
   
-  list(u = u, v = v)
+  list(
+    u = qu(U1),
+    v = qv(U2)
+  )
 }
 
 simulate_one_dataset <- function(scen, cfg, SigmaX = NULL) {
-  # scen: one-row data.frame with n, rho, err_family, df, mix_pi, mix_shift_u, gamma0
+  # scen: one-row data.frame with n, rho, err_family, df, gamma0
   # cfg: config list from make_config()
   
   # --- unpack basic stuff ---
@@ -99,14 +98,21 @@ simulate_one_dataset <- function(scen, cfg, SigmaX = NULL) {
     "normal" = draw_uv_normal(n, rho),
     "t3"     = draw_uv_t(n, rho, df = 3),
     "t5"     = draw_uv_t(n, rho, df = 5),
-    "mixture" = draw_uv_mixture(
-      n = n,
-      rho = rho,
-      base_family = "normal",           # v ~ normal, u gets mixture shift
-      df = NULL,
-      mix_pi = scen$mix_pi,
-      mix_shift_u = scen$mix_shift_u
-    ),
+    
+    "logistic" = {
+      # Logistic Var=1: scale = sqrt(3)/pi
+      sc <- sqrt(3) / pi
+      qlogit_var1 <- function(p) qlogis(p) * sc
+      draw_uv_copula(n, rho, qu = qlogit_var1, qv = qlogit_var1)
+    },
+    
+    "lpm" = {
+      # Uniform Var=1: a = sqrt(3), support [-a, a]
+      a <- sqrt(3)
+      quni_var1 <- function(p) qunif(p, min = -a, max = a)
+      draw_uv_copula(n, rho, qu = quni_var1, qv = quni_var1)
+    },
+    
     stop("Unknown err_family in simulate_one_dataset: ", efam)
   )
   
@@ -131,3 +137,6 @@ simulate_one_dataset <- function(scen, cfg, SigmaX = NULL) {
     s_star = s_star
   )
 }
+
+
+
