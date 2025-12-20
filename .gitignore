@@ -55,3 +55,11 @@ paper/*.html
 
 
 .DS_Store
+*.rds
+*.pdf
+*.png
+*.tex
+*.bib
+*.log
+*.bib
+scripts/run_smoke_test.R
