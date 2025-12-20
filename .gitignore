@@ -68,3 +68,5 @@ scripts/run_smoke_test.R
 *.bib
 scripts/run_smoke_test.R
 *.gz
+paper/refs.bib
+scripts/run_smoke_test.R
