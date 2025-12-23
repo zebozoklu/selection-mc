@@ -1,0 +1,25 @@
+\begin{thebibliography}{}
+
+\bibitem[Heckman, 1979]{Heckman1979}
+Heckman, J.~J. (1979).
+\newblock Sample selection bias as a specification error.
+\newblock {\em Econometrica}, 47(1):153--161.
+
+\bibitem[MacKinnon and White, 1985]{MacKinnonWhite1985}
+MacKinnon, J.~G. and White, H. (1985).
+\newblock Some heteroskedasticity-consistent covariance matrix estimators with
+  improved finite sample properties.
+\newblock {\em Journal of Econometrics}, 29(3):305--325.
+
+\bibitem[Murphy and Topel, 1985]{MurphyTopel1985}
+Murphy, K.~M. and Topel, R.~H. (1985).
+\newblock Estimation and inference in two-step econometric models.
+\newblock {\em Journal of Business \& Economic Statistics}, 3(4):370--379.
+
+\bibitem[White, 1980]{White1980}
+White, H. (1980).
+\newblock A heteroskedasticity-consistent covariance matrix estimator and a
+  direct test for heteroskedasticity.
+\newblock {\em Econometrica}, 48(4):817--838.
+
+\end{thebibliography}
